@@ -745,9 +745,9 @@ ol.stops{list-style:none;margin:0;padding:0}
 .favbtn{border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-weight:600;font-size:.88rem;white-space:nowrap}
 .favbtn[aria-pressed="true"]{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
 .next{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
-.next li{display:grid;grid-template-columns:minmax(96px,auto) minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--bg)}
+.next li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--bg)}
 .next li:first-child{background:var(--accent-soft)}
-.big{font-family:var(--display);font-size:1.5rem;line-height:1;font-variant-numeric:tabular-nums}
+.big{font-family:var(--display);font-size:1.5rem;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:96px}
 .next li:first-child .big{font-size:1.9rem}
 .meta{color:var(--muted);font-size:.88rem;line-height:1.3}
 .meta b{color:var(--ink);font-variant-numeric:tabular-nums}
@@ -785,7 +785,7 @@ footer{color:var(--muted);font-size:.84rem;line-height:1.5;max-width:70ch}
   .grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"detail" "list"}
   .routes{grid-template-columns:1fr}
   .route{flex-direction:row;align-items:baseline;gap:10px;border-top-width:1px;border-left:6px solid var(--rc)}
-  .next li{grid-template-columns:minmax(84px,auto) minmax(0,1fr)}
+  .next li{grid-template-columns:auto minmax(0,1fr)}
   .next .badge{grid-column:2;justify-self:start}
 }
 </style>
@@ -1022,17 +1022,18 @@ function renderDetail(c){
   updateMap();
 }
 /* ---------- mapa (Leaflet; si no carga, diagrama) ---------- */
-let map=null,lay={},mapRoute=-1,mapKey='',picking=false,tilesOk=false;
+let map=null,lay={},mapRoute=-1,mapKey='',picking=false,tilesOk=false,touched=false;
+function fitRoute(){if(!map)return;const R=D.routes[st.r];map.invalidateSize();map.fitBounds(L.latLngBounds(SHAPES[R[4]].concat(RSTOPS[st.r].map(sll))),{padding:[18,18],animate:false})}
 function initMap(){
   if(!window.L){$('map').classList.add('nomap');return}
   map=L.map('map',{scrollWheelZoom:false});
-  const tl=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{maxZoom:19,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(map);
-  tl.on('tileload',()=>{if(!tilesOk){tilesOk=true;if(lay.st){map.removeLayer(lay.st);map.removeLayer(lay.lab)}legend()}});
+  const tl=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
+  tl.on('tileload',()=>{tilesOk=true});
   // calles incrustadas (se retiran si carga el mapa de fondo en el navegador)
   const dec=str=>{const A='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';let y=0,x=0;
     return str.split('.').map(seg=>{const pts=[];let i=0;const num=()=>{let z=0,m=1,v;do{v=A.indexOf(seg[i++]);z+=(v&31)*m;m*=32}while(v&32);return z%2?-(z+1)/2:z/2};
       while(i<seg.length){y+=num();x+=num();pts.push([-12.1125+y/5e4,-77.0605+x/5e4])}return pts})};
-  map.createPane('streets').style.zIndex=250;
+  map.createPane('streets').style.zIndex=150;
   const rn=L.canvas({pane:'streets'});
   lay.st=L.layerGroup([
     L.polyline(dec(STREETS.m),{renderer:rn,color:'#FFFFFF',weight:3,interactive:false}),
@@ -1040,10 +1041,12 @@ function initMap(){
     L.polyline(dec(STREETS.M),{renderer:rn,color:'#FFF6D6',weight:5,interactive:false})
   ]).addTo(map);
   lay.lab=L.layerGroup(STREETS.L.map(a=>L.marker([-12.1125+a[1]/5e4,-77.0605+a[2]/5e4],{interactive:false,keyboard:false,pane:'streets',icon:L.divIcon({className:'',iconSize:[0,0],html:'<span class="stl">'+a[0]+'</span>'})}))).addTo(map);
-  map.attributionControl.addAttribution('Calles &copy; OpenStreetMap');
-  lay.line=L.polyline([],{weight:5,opacity:.85}).addTo(map);
+    lay.line=L.polyline([],{weight:5,opacity:.85}).addTo(map);
   lay.stops=L.layerGroup().addTo(map);lay.bus=L.layerGroup().addTo(map);lay.me=L.layerGroup().addTo(map);
   map.on('click',e=>{if(!picking)return;setOrigin(e.latlng.lat,e.latlng.lng)});
+  ['mousedown','touchstart','wheel'].forEach(ev=>$('map').addEventListener(ev,()=>{touched=true},{passive:true}));
+  if(window.ResizeObserver)new ResizeObserver(()=>{if(touched)map.invalidateSize();else fitRoute()}).observe($('map'));
+  window.addEventListener('load',()=>{if(!touched)fitRoute()});
 }
 function updateMap(){
   const R=D.routes[st.r];$('mh').textContent='Mapa de '+R[1];
@@ -1053,7 +1056,7 @@ function updateMap(){
   if(!map){$('map').innerHTML=mapSvg();return}
   if(mapRoute!==st.r){
     lay.line.setLatLngs(SHAPES[R[4]]).setStyle({color:R[3]});
-    map.fitBounds(L.latLngBounds(SHAPES[R[4]].concat(RSTOPS[st.r].map(sll))),{padding:[18,18]});
+    touched=false;fitRoute();
     mapRoute=st.r;
   }
   const key=st.r+'_'+st.s;
