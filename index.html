@@ -761,6 +761,9 @@ ol.stops{list-style:none;margin:0;padding:0}
 .stl{font:600 11px var(--body);color:#5B6660;white-space:nowrap;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;pointer-events:none;transform:translate(-50%,-50%);display:inline-block}
 #map.nomap{height:auto;border:0;background:none}
 #map.pick{cursor:crosshair}
+#map.pick::before,#map.pick::after{content:"";position:absolute;left:50%;top:50%;z-index:1000;pointer-events:none;transform:translate(-50%,-50%);border-radius:50%}
+#map.pick::before{width:34px;height:34px;border:3px solid #1A73E8;background:rgba(26,115,232,.15)}
+#map.pick::after{width:8px;height:8px;background:#1A73E8}
 #map svg.diag{display:block;width:100%;height:auto}
 #map .sd{fill:var(--surface);stroke-width:3;cursor:pointer}
 #map .lbl{font:600 13px var(--body);fill:var(--ink);paint-order:stroke;stroke:var(--surface);stroke-width:5px;stroke-linejoin:round}
@@ -1050,7 +1053,7 @@ function initMap(){
 }
 function updateMap(){
   const R=D.routes[st.r];$('mh').textContent='Mapa de '+R[1];
-  $('bclear').hidden=!st.o;$('bpick').setAttribute('aria-pressed',picking);$('bpick').textContent=picking?'Toca el mapa donde estás':'Marcar dónde estoy en el mapa';
+  $('bclear').hidden=!st.o&&!picking;$('bclear').textContent=picking?'Cancelar':'Quitar mi ubicación';$('bpick').setAttribute('aria-pressed',picking);$('bpick').textContent=picking?'Confirmar esta posición':'Marcar dónde estoy en el mapa';
   $('map').classList.toggle('pick',picking);
   legend();
   if(!map){$('map').innerHTML=mapSvg();return}
@@ -1083,11 +1086,14 @@ function legend(){
 }
 function setOrigin(lat,lon){picking=false;st.o=[+lat.toFixed(5),+lon.toFixed(5)];$('locmsg').textContent='';save();render()}
 function locate(){
-  const fail=()=>{$('locmsg').textContent='No se pudo leer tu ubicación aquí. Márcala tocando el mapa.'};
+  const fail=e=>{const c=e&&e.code;$('locmsg').textContent=c===1?'El navegador tiene bloqueado el permiso de ubicación para esta página. Actívalo en los ajustes del sitio o marca tu posición en el mapa.':c===3?'El GPS tardó demasiado. Inténtalo otra vez o marca tu posición en el mapa.':'No se pudo leer tu ubicación. Revisa que la ubicación del teléfono esté activada o márcala en el mapa.'};
+  const ok=p=>{setOrigin(p.coords.latitude,p.coords.longitude);if(map){touched=true;map.setView(st.o,16)}};
   try{
     if(!navigator.geolocation)return fail();
     $('locmsg').textContent='Buscando tu ubicación…';
-    navigator.geolocation.getCurrentPosition(p=>setOrigin(p.coords.latitude,p.coords.longitude),fail,{timeout:8000,enableHighAccuracy:true});
+    navigator.geolocation.getCurrentPosition(ok,e=>{
+      if(e.code===3)navigator.geolocation.getCurrentPosition(ok,fail,{timeout:20000,maximumAge:120000,enableHighAccuracy:false});else fail(e);
+    },{timeout:12000,maximumAge:30000,enableHighAccuracy:true});
   }catch(e){fail()}
 }
 function mapSvg(){
@@ -1109,7 +1115,10 @@ function mapSvg(){
 /* ---------- interacción ---------- */
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-r],[data-s],[data-fav],[data-go],[data-retry],[data-loc]');if(!t)return;
-  if(t.dataset.loc){const a=t.dataset.loc;if(a==='gps'){picking=false;locate()}else if(a==='pick'){picking=!picking;$('locmsg').textContent=''}else{st.o=null;picking=false;$('locmsg').textContent='';save()}render();return}
+  if(t.dataset.loc){const a=t.dataset.loc;if(a==='gps'){picking=false;locate()}
+    else if(a==='pick'){if(picking&&map){const c=map.getCenter();touched=true;setOrigin(c.lat,c.lng);return}picking=!picking;$('locmsg').textContent=picking?(map?'Mueve el mapa hasta que la mira azul quede sobre tu posición (o toca el punto) y pulsa Confirmar.':'El mapa no cargó; recarga la página.'):''}
+    else{if(picking){picking=false}else{st.o=null;save()}$('locmsg').textContent=''}
+    render();return}
   if(t.dataset.retry){live.state='checking';live.fail=1;render();poll();return}
   if(t.dataset.fav){const k=t.dataset.fav,i=st.favs.indexOf(k);if(i>=0)st.favs.splice(i,1);else st.favs.push(k)}
   else if(t.dataset.r!==undefined){st.r=+t.dataset.r;st.s=RSTOPS[st.r][0];st.q='';$('q').value=''}
