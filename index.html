@@ -1046,10 +1046,22 @@ function initMap(){
   lay.lab=L.layerGroup(STREETS.L.map(a=>L.marker([-12.1125+a[1]/5e4,-77.0605+a[2]/5e4],{interactive:false,keyboard:false,pane:'streets',icon:L.divIcon({className:'',iconSize:[0,0],html:'<span class="stl">'+a[0]+'</span>'})}))).addTo(map);
     lay.line=L.polyline([],{weight:5,opacity:.85}).addTo(map);
   lay.stops=L.layerGroup().addTo(map);lay.bus=L.layerGroup().addTo(map);lay.me=L.layerGroup().addTo(map);
-  map.on('click',e=>{if(!picking)return;setOrigin(e.latlng.lat,e.latlng.lng)});
+  // toques propios (no dependen del "click" de Leaflet, que falla en algunos celulares)
+  const mp=$('map');let pd=null;
+  mp.addEventListener('pointerdown',e=>{if(e.isPrimary)pd={x:e.clientX,y:e.clientY,t:Date.now()}});
+  mp.addEventListener('pointerup',e=>{if(!pd||!e.isPrimary)return;const d=Math.hypot(e.clientX-pd.x,e.clientY-pd.y),dt=Date.now()-pd.t;pd=null;
+    if(d>12||dt>800)return;if(e.target.closest&&e.target.closest('.leaflet-control'))return;
+    const r=mp.getBoundingClientRect();tapMap(L.point(e.clientX-r.left,e.clientY-r.top),e.pointerType==='mouse'?16:34)});
   ['mousedown','touchstart','wheel'].forEach(ev=>$('map').addEventListener(ev,()=>{touched=true},{passive:true}));
   if(window.ResizeObserver)new ResizeObserver(()=>{if(touched)map.invalidateSize();else fitRoute()}).observe($('map'));
   window.addEventListener('load',()=>{if(!touched)fitRoute()});
+}
+function tapMap(pt,reach){
+  const ll=map.containerPointToLatLng(pt);
+  if(picking){touched=true;setOrigin(ll.lat,ll.lng);return}
+  let best=-1,bd=reach;
+  for(const s of RSTOPS[st.r]){const d=pt.distanceTo(map.latLngToContainerPoint(sll(s)));if(d<bd){bd=d;best=s}}
+  if(best>=0&&best!==st.s){st.s=best;save();render()}
 }
 function updateMap(){
   const R=D.routes[st.r];$('mh').textContent='Mapa de '+R[1];
@@ -1067,11 +1079,12 @@ function updateMap(){
     mapKey=key;lay.stops.clearLayers();
     const order=RSTOPS[st.r].filter(s=>s!==st.s).concat([st.s]);
     for(const s of order){const sel=s===st.s;
-      const m=L.circleMarker(sll(s),{radius:sel?10:6,color:sel?'#fff':R[3],weight:3,fillColor:sel?R[3]:'#fff',fillOpacity:1}).addTo(lay.stops);
+      const m=L.circleMarker(sll(s),{radius:sel?10:7,color:sel?'#fff':R[3],weight:3,fillColor:sel?R[3]:'#fff',fillOpacity:1}).addTo(lay.stops);
       m.bindTooltip(D.stops[s][1],{permanent:sel,direction:'top',offset:[0,-8]});
-      m.on('click',ev=>{L.DomEvent.stopPropagation(ev);st.s=s;save();render()});
+      if(sel)lay.sel=m;
     }
   }
+  if(lay.sel){const c=now(),u=upcoming(st.r,st.s,c)[0];lay.sel.setTooltipContent(D.stops[st.s][1]+(u?' · '+inMin(u.t-c.min):''))}
   lay.bus.clearLayers();
   if(live.state==='on')for(const v of live.veh){if(v.r===st.r)L.circleMarker([v.lat,v.lon],{radius:8,color:'#fff',weight:3,fillColor:'#16231F',fillOpacity:1}).bindTooltip('Bus en ruta').addTo(lay.bus)}
   lay.me.clearLayers();
@@ -1081,7 +1094,7 @@ function legend(){
   const R=D.routes[st.r];
   $('legend').innerHTML='<span><i style="background:'+R[3]+'"></i>Paradero elegido</span>'
     +(live.state==='on'?'<span><i style="background:#16231F"></i>Buses en ruta: '+live.veh.filter(v=>v.r===st.r).length+'</span>':'')
-    +(st.o?'<span><i style="background:#1A73E8"></i>Tú</span>':'')
+    +(st.o?'<span><i style="background:#1A73E8"></i>Tú</span>':'')+(map?'<span>Toca un paradero del mapa para elegirlo</span>':'')
     ;
 }
 function setOrigin(lat,lon){picking=false;st.o=[+lat.toFixed(5),+lon.toFixed(5)];$('locmsg').textContent='';save();render()}
